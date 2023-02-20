@@ -1,77 +1,118 @@
 #!/bin/bash
 
+# Exit if a command returns a non-zero exit code
+set -euo pipefail
+
+# Set ANSI escape codes for text formatting
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+# Define the color codes
+HIGHLIGHT_YELLOW=$'\e[1;33m' 
+HIGHLIGHT_NC=$'\e[0;0m'
+
+
 # Helper function to check for unsaved changes in the working directory
 function unsaved_files {
-    files=$(git diff-index HEAD);
-    if [ ! -z "$files" -a "$files" != " " ]; then
-          echo true;
-      else
-      echo false;
+    local files=$(git diff-index HEAD) || true
+    if [[ -n "$files" ]]; then
+        printf 'true\n'
+    else
+        printf 'false\n'
     fi
 }
 
 # Exit script if no branch name is provided
-if [ -z "$1" ]; then
-  echo "Error: Please specify a branch name."
-  exit 1
-fi
-
-target=$1
-
-# Find branches with similar name
-branches=($(git branch -a --list "*$target*"))
-
-# Exit script if no matching branches are found
-if [ ${#branches[@]} -eq 0 ]; then
-    echo "Error: No branches found matching the name '$target'."
+if [[ -z "${1:-}" ]]; then
+    printf 'Error: Please specify a branch name.\n'
     exit 1
 fi
 
+target="$1"
+
+# Find branches with similar name
+_branches=($(git branch -ila "*$target*")) || true
+
+# Exit script if no matching branches are found
+if [[ ${#_branches[@]} -eq 0 ]]; then
+    printf 'Error: No branches found matching the name %s.\n' "$target"
+    exit 1
+fi
+
+branches=()
+target_lower=$(echo "$target" | tr '[:lower:]' '[:upper:]')
+target_upper=$(echo "$target" | tr '[:upper:]' '[:lower:]' )
+# Loop over each element in the array and perform a case-insensitive comparison
+for branch in "${_branches[@]}"; do
+    if [[ "$branch" =~ ${target_lower} ]]; then
+        branches+=("${branch/$target_lower/$'${HIGHLIGHT_YELLOW}$target_lower${HIGHLIGHT_NC}'}")
+    else
+        branches+=("${branch/$target_upper/$'${HIGHLIGHT_YELLOW}$target_upper${HIGHLIGHT_NC}'}")
+    fi
+done
+
+# Loop through branches and highlight the given keyword
+# branches=("${branches[@]/$target/$'${HIGHLIGHT_YELLOW}$target${HIGHLIGHT_NC}'}")
+
 # Select the needed branch
-if [ ${#branches[@]} -gt 1 ]; then
-    PS3="Select a branch: "
+if [[ ${#branches[@]} -gt 1 ]]; then
+    PS3="Select a branch option: "
     select branch in "${branches[@]}"; do
+    # Check if the selected option is in the list of available options
+    if [[ " ${branches[@]} " =~ " ${branch} " ]]; then
         break
-    done
+    else
+        echo "Invalid option. Please select a valid option."
+    fi
+done
 else
     branch=${branches[0]}
 fi
 
+# Remove color codes from the selceted branch
+branch=${branch/${HIGHLIGHT_YELLOW}}
+branch=${branch/${HIGHLIGHT_NC}}
+
 # Checkout unsaved changes
-if unsaved_files; then
-    read -p "There are unsaved changes in the working directory. Stash, commit or ignore? (s/c/i)? : " answer
+if unsaved_files | grep -q '^true$'; then
+    read -rp "There are unsaved changes in the working directory. Stash (s), commit (c) or ignore (i)? : " answer
     case "$answer" in
-        s)
-            git stash save "stash for $(git rev-parse --abbrev-ref HEAD)"
-            echo "Unsaved changes have been stashed.";;
-        c)
-            read -p "Please provide a commit message: " commit_message
-            git add .
-            git commit -m "$commit_message"
-            echo "Unsaved changes have been committed with message: $commit_message";;
-        i)
-            git reset --hard HEAD;;
+        stash|[sS])
+            git stash save "stash for $(git rev-parse --abbrev-ref HEAD)" || exit 1
+            printf 'Unsaved changes have been stashed.\n';;
+        commit|[cC])
+            read -rp "Please provide a commit message: " commit_message
+            git add . || exit 1
+            git commit -m "$commit_message" || exit 1
+            printf 'Unsaved changes have been committed with message: %s\n' "$commit_message";;
+        ignore|[iI])
+            git reset --hard HEAD || exit 1;;
         *)
-            echo "Invalid option. No changes were made."
+            printf 'Invalid option. No changes were made.\n'
             exit 1;;
     esac
 fi
 
-git checkout "$branch"
-echo "Checked out to branch $branch."
+git checkout "${branch}" || exit 1
+printf 'Checked out to branch %s.\n' "$branch"
 
 # Make sure a branch is selected
-if [ -z "$branch" ]; then
-    echo "Error: No branch selected."
+if [[ -z "${branch:-}" ]]; then
+    printf 'Error: No branch selected.\n'
     exit 1
 fi
 
 # Check for stashes with the current branch
-stash_list=($(git stash list | grep "$branch"))
+stash_list=($(git stash list | grep "$branch")) || true
+
+# Loop through stashes and highlight the selected branch
+stash_list=("${stash_list/$branch/$'${HIGHLIGHT_YELLOW}$branch${HIGHLIGHT_NC}'}")
 
 # Select the needed stash
 if [ ${#stash_list[@]} -gt 0 ]; then
-    echo -e "The following stashes were found for the current branch \033[1;34m$branch\033[0m"
+    echo -e "The following stashes were found for the current branch ${GREEN}$branch${NC}"
     git stash list | grep "$branch"
 fi
 
