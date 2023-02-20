@@ -1,0 +1,90 @@
+#!/bin/bash
+
+# Helper function to check for unsaved changes in the working directory
+function unsaved_files {
+    files=$(git diff-index HEAD);
+    if [ ! -z "$files" -a "$files" != " " ]; then
+          echo true;
+      else
+      echo false;
+    fi
+}
+
+# Exit script if no branch name is provided
+if [ -z "$1" ]; then
+  echo "Error: Please specify a branch name."
+  exit 1
+fi
+
+target=$1
+
+# Find branches with similar name
+branches=($(git branch -a --list "*$target*"))
+
+# Exit script if no matching branches are found
+if [ ${#branches[@]} -eq 0 ]; then
+    echo "Error: No branches found matching the name '$target'."
+    exit 1
+fi
+
+# Select the needed branch
+if [ ${#branches[@]} -gt 1 ]; then
+    PS3="Select a branch: "
+    select branch in "${branches[@]}"; do
+        break
+    done
+else
+    branch=${branches[0]}
+fi
+
+# Checkout unsaved changes
+if unsaved_files; then
+    read -p "There are unsaved changes in the working directory. Stash, commit or ignore? (s/c/i)? : " answer
+    case "$answer" in
+        s)
+            git stash save "stash for $(git rev-parse --abbrev-ref HEAD)"
+            echo "Unsaved changes have been stashed.";;
+        c)
+            read -p "Please provide a commit message: " commit_message
+            git add .
+            git commit -m "$commit_message"
+            echo "Unsaved changes have been committed with message: $commit_message";;
+        i)
+            git reset --hard HEAD;;
+        *)
+            echo "Invalid option. No changes were made."
+            exit 1;;
+    esac
+fi
+
+git checkout "$branch"
+echo "Checked out to branch $branch."
+
+# Make sure a branch is selected
+if [ -z "$branch" ]; then
+    echo "Error: No branch selected."
+    exit 1
+fi
+
+# Check for stashes with the current branch
+stash_list=($(git stash list | grep "$branch"))
+
+# Select the needed stash
+if [ ${#stash_list[@]} -gt 0 ]; then
+    echo -e "The following stashes were found for the current branch \033[1;34m$branch\033[0m"
+    git stash list | grep "$branch"
+fi
+
+#if [ ${#stash_list[@]} -ge 1 ]; then
+#    echo "The following stashes were found for the current branch ($branch):"
+#    select stash in "${stash_list[@]}"; do
+#        break
+#    done
+#
+#    read -p "Do you want to pop the stash? (y/n) " answer
+#    if [ "$answer" == "y" ]; then
+#        # Pop the stash
+#        git stash pop
+#        echo "Stash has been popped."
+#    fi
+#fi
