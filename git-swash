@@ -4,15 +4,11 @@
 readonly TRUE=0
 readonly FALSE=1
 readonly TEXT_RED='\033[0;31m'
-readonly TEXT_GREEN='\033[0;32m'
 readonly TEXT_YELLOW='\033[0;33m'
 readonly TEXT_BLUE='\033[0;34m'
 readonly TEXT_NC='\033[0m'
 readonly BACKGROUND_YELLOW=$'\e[43;5;33m'
-readonly BACKGROUND_BLUE=$'\e[48;5;33m'
 readonly BACKGROUND_NC=$'\e[0m'
-readonly HIGHLIGHT_YELLOW=$'\e[1;33m' 
-readonly HIGHLIGHT_NC=$'\e[0;0m'
 
 
 
@@ -26,6 +22,12 @@ function find_branches {
     # Exit script if no matching branches are found
     if [[ ${#_branches[@]} -eq 0 ]]; then
         echo -e "${TEXT_RED}Error${TEXT_NC}: No branches found matching the name ${TEXT_YELLOW}$_target${TEXT_NC}"
+        exit $FALSE
+    fi
+
+    # Check if the array contains an asterisk
+    if [[ "${_branches[*]}" == *"*"* ]]; then
+        echo -e "${TEXT_RED}Error${TEXT_NC}: You are on this branch"
         exit $FALSE
     fi
 
@@ -59,21 +61,21 @@ function are_unsaved_files_present {
 function handle_unsaved_file {
     are_unsaved_files_present
     if [[ $? -eq $TRUE ]]; then
-        read -rp "There are unsaved changes in the working directory. Stash (s), commit (c) or ignore (i)? : " answer
+        read -rp "There are unsaved changes in the working directory. Stash (s) or ignore (i)? : " answer
         case "$answer" in
             stash|[sS])
-                git stash save "stash for $(git rev-parse --abbrev-ref HEAD)" || exit 1
+                git stash save "stash for $(git rev-parse --abbrev-ref HEAD)" || exit $FALSE
                 printf 'Unsaved changes have been stashed.\n';;
-            commit|[cC])
-                read -rp "Please provide a commit message: " commit_message
-                git add . || exit 1
-                git commit -m "$commit_message" || exit 1
-                printf 'Unsaved changes have been committed with message: %s\n' "$commit_message";;
+#            commit|[cC])
+#                read -rp "Please provide a commit message: " commit_message
+#                git add . || exit $FALSE
+#                git commit -m "$commit_message" || exit $FALSE
+#                printf 'Unsaved changes have been committed with message: %s\n' "$commit_message";;
             ignore|[iI])
-                git reset --hard HEAD || exit 1;;
+                git reset --hard HEAD || exit $FALSE;;
             *)
                 printf 'Invalid option. No changes were made.\n'
-                exit 1;;
+                exit $FALSE;;
         esac
     fi
 }
@@ -90,7 +92,9 @@ function prepare_options {
     # Loop over each element in the array and perform a case-insensitive comparison
     for _option in "${_options[@]}"; do
         #TODO::if option is current branch color it in green
-        if [[ "$_option" =~ ${_lower} ]]; then
+        if [[ "$_option" == ${_target} ]]; then
+            _result+=("${_option/$_target/$'${BACKGROUND_YELLOW}$_target${BACKGROUND_NC}'}")
+        elif [[ "$_option" =~ ${_lower} ]]; then
             _result+=("${_option/$_lower/$'${BACKGROUND_YELLOW}$_lower${BACKGROUND_NC}'}") #highlight the given keyword
         else
             _result+=("${_option/$_upper/$'${BACKGROUND_YELLOW}$_upper${BACKGROUND_NC}'}") #highlight the given keyword
@@ -156,9 +160,7 @@ function handle_stash {
         local _upper=$(echo "$_target" | tr '[:upper:]' '[:lower:]' )
         #TODO:: use prepare_options
         for _option in "${_stash_list[@]}"; do
-            if [[ "$_option" =~ ${_target} ]]; then
-                _options+=("${_option/$_target/$'${BACKGROUND_YELLOW}$_target${HIGHLIGHT_NC}'}")
-            elif [[ "$_option" =~ ${_lower} ]]; then
+            if [[ "$_option" =~ ${_lower} ]]; then
                 _options+=("${_option/$_lower/$'${BACKGROUND_YELLOW}$_lower${HIGHLIGHT_NC}'}")
             else
                 _options+=("${_option/$_upper/$'${BACKGROUND_YELLOW}$_upper${HIGHLIGHT_NC}'}")
@@ -190,6 +192,7 @@ if [[ -z "${1:-}" ]]; then
 fi
 
 target="$1"
+
 # Find all branches
 #TODO::swich immidiatly if exact match find
 branches=($(find_branches "$target" ))
@@ -210,5 +213,10 @@ if [[ -z "${branch:-}" ]]; then
 fi
 
 handle_unsaved_file
+# validate
+if [[ $? -eq $FALSE ]]; then
+    exit $FALSE
+fi
+
 swich_to "${branch}"
 handle_stash "${branch}"
